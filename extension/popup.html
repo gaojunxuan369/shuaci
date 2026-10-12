@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>刷词 · 划词收录</title>
+<style>
+  body { width: 320px; margin: 0; padding: 16px;
+         font: 13px/1.6 system-ui, "Microsoft YaHei", sans-serif; color: #1f2937; background: #fff; }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 10px; }
+  .st { margin: 0 0 12px; padding: 8px 10px; border-radius: 8px;
+        background: #f3f4f6; color: #6b7280; font-size: 12px; }
+  .st.ok { background: #e7f6ee; color: #0f6e56; }
+  .st.bad { background: #fdeaea; color: #a32d2d; }
+  label { display: block; font-size: 12px; color: #6b7280; margin: 10px 0 4px; }
+  input { width: 100%; box-sizing: border-box; padding: 7px 9px;
+          border: 1px solid #d1d5db; border-radius: 7px; font: inherit; }
+  .row { display: flex; gap: 8px; margin-top: 12px; }
+  button { flex: 1; padding: 8px; border: 0; border-radius: 8px;
+           background: #2f6fed; color: #fff; font: inherit; cursor: pointer; }
+  button.ghost { background: #fff; color: #4b5563; border: 1px solid #d1d5db; }
+  button:hover { filter: brightness(1.06); }
+  .tip { margin: 14px 0 0; font-size: 12px; color: #9ca3af; }
+</style>
+</head>
+<body>
+  <h1>刷词 · 划词收录</h1>
+  <p class="st" id="st">检查中…</p>
+
+  <label for="base">服务地址</label>
+  <input id="base" placeholder="http://127.0.0.1:8756">
+
+  <label for="target">写入哪个词表（留空用服务端默认）</label>
+  <input id="target" placeholder="留空">
+
+  <label for="section">分组名（留空按日期生成）</label>
+  <input id="section" placeholder="留空">
+
+  <div class="row">
+    <button id="scan" class="ghost">自动探测</button>
+    <button id="save">保存</button>
+  </div>
+  <div class="row">
+    <button id="open" class="ghost">打开刷词页</button>
+  </div>
+
+  <p class="tip">用法：网页上划中一个英文单词，右键 → 加入刷词词库。<br>
+    原句和释义会一起存下来，随后在刷词页翻面时能看到。</p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

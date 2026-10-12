@@ -1,0 +1,22 @@
+# 自己的词库和学习记录不上传，仓库里只留代码和一份示例词表
+data/dict.json
+data/progress.json
+data/sources.json
+data/backup/
+data/uploads/
+
+# 自己的词表不上传；示例词表要留着，克隆下来就能看到东西
+生词.md
+生词_整理_*.md
+!生词_示例.md
+
+# 本机 Python 路径，各人不一样
+python_path.txt
+
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

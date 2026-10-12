@@ -1,0 +1,4 @@
+# bat 必须是 CRLF，LF 会被 cmd 逐行丢字符
+*.bat text eol=crlf
+
+* text=auto

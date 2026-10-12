@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>刷词</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">刷词</div>
+  <nav class="tabs">
+    <button class="tab on" data-view="drill">刷词</button>
+    <button class="tab" data-view="fav">收藏<span class="badge" id="badgeFav">0</span></button>
+    <button class="tab" data-view="all">词表</button>
+    <button class="tab" data-view="src">词表来源</button>
+  </nav>
+  <div class="today" id="topInfo"></div>
+</header>
+
+<div class="warn" id="warnBar"></div>
+
+<main>
+  <!-- 刷词 -->
+  <section class="view on" id="view-drill">
+    <div class="bar">
+      <div class="seg" id="modeSeg">
+        <button class="on" data-mode="mix">混合</button>
+        <button data-mode="new">只刷新词</button>
+        <button data-mode="fav">只刷收藏</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="optShuffle"> 打乱顺序</label>
+      <label class="chk"><input type="checkbox" id="optRequeue" checked> 不会的再排一遍</label>
+      <label class="chk">每日新词上限
+        <input type="number" id="optDaily" min="10" max="500" step="10" value="150" class="num">
+      </label>
+      <label class="chk"><input type="checkbox" id="optHints"> 显示音标和搭配提示</label>
+      <span class="spacer"></span>
+      <span class="count" id="drillCount"></span>
+      <button class="mini" id="btnRestart">重来本轮</button>
+    </div>
+
+    <div class="pbar"><i id="pbarFill"></i></div>
+
+    <div class="card" id="card">
+      <div class="wordrow">
+        <div class="word" id="word">加载中…</div>
+        <button class="spk" id="btnSay" title="发音（P）" aria-label="发音">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path d="M4 9.5v5h3.6L13 19.5v-15L7.6 9.5H4z" fill="currentColor"/>
+            <path d="M16.2 9a4.2 4.2 0 0 1 0 6" fill="none" stroke="currentColor"
+                  stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="ph" id="ph"></div>
+      <div class="mean" id="mean" hidden></div>
+      <div class="tip" id="tip" hidden></div>
+      <div class="ctx" id="ctx" hidden></div>
+    </div>
+
+    <div class="acts" id="acts"></div>
+    <div class="kb">
+      <b>1</b> 认识　<b>2</b> 不认识　<b>空格</b> 下一个　<b>P</b> 发音　<b>S</b> 收藏/取消　<b>E</b> 改释义
+    </div>
+  </section>
+
+  <!-- 收藏 -->
+  <section class="view" id="view-fav">
+    <div class="bar">
+      <input class="search" id="favSearch" placeholder="搜索收藏的词…">
+      <select id="favScope">
+        <option value="all">全部收藏</option>
+        <option value="today">只看今天收藏</option>
+      </select>
+      <button class="mini" id="favSort">最新在前</button>
+      <span class="spacer"></span>
+      <span class="count" id="favCount"></span>
+      <button class="mini" id="btnFavDrill">只刷收藏</button>
+    </div>
+    <div class="list" id="favList"></div>
+  </section>
+
+  <!-- 词表 -->
+  <section class="view" id="view-all">
+    <div class="bar">
+      <input class="search" id="allSearch" placeholder="搜索全部单词…">
+      <select id="allFilter">
+        <option value="">全部状态</option>
+        <option value="new">没学过</option>
+        <option value="fav">收藏中</option>
+        <option value="done">已掌握</option>
+        <option value="missing">缺释义</option>
+      </select>
+      <span class="spacer"></span>
+      <span class="count" id="allCount"></span>
+    </div>
+    <div class="list" id="allList"></div>
+  </section>
+
+  <!-- 来源 -->
+  <section class="view" id="view-src">
+    <div class="panel">
+      <h3>词表来源</h3>
+      <div id="srcList"></div>
+      <div class="drop" id="drop">
+        把 md 文件拖到这里，或 <button class="link" id="btnPick">选择文件</button>
+        <input type="file" id="filePick" accept=".md,.txt,.markdown" hidden multiple>
+      </div>
+      <p class="hint">格式随便：<code>每行一个单词</code>、<code>| word | 意思 | 提示 |</code> 表格、
+        <code>word - 意思</code> 都认。分组标题（# 标题 或 261008_词表1-10页）会自动当分组名。</p>
+    </div>
+
+    <div class="panel">
+      <h3>批量加词</h3>
+      <p class="hint">每天的新词直接粘进来，一行一个。也可以粘表格行 <code>| word | 意思 |</code>。</p>
+      <div class="addrow">
+        <input class="minput" id="addSection" placeholder="分组名，比如 261009_词表11-20页">
+        <input class="minput" id="addTarget" placeholder="写入的文件">
+      </div>
+      <textarea class="mtext" id="addText"
+        placeholder="staple&#10;presumably&#10;appalling&#10;..."></textarea>
+      <div class="addrow">
+        <button class="btn" id="btnAdd">加入词库</button>
+        <label class="chk"><input type="checkbox" id="addFill" checked> 顺手联网补全释义</label>
+        <span class="hint" id="addInfo"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>释义</h3>
+      <p class="hint" id="missingInfo"></p>
+      <button class="btn" id="btnFill">联网补全缺的释义</button>
+      <span class="hint" id="fillInfo"></span>
+    </div>
+
+    <div class="panel">
+      <h3>导出</h3>
+      <p class="hint">导出一份带中文意思、按分组排好的 markdown，收藏的会打 ★，已掌握打 √。</p>
+      <button class="btn" id="btnExport">导出整理表.md</button>
+    </div>
+
+    <div class="panel danger">
+      <h3>重置</h3>
+      <button class="btn ghost" id="btnResetFav">清空收藏状态</button>
+      <button class="btn ghost" id="btnResetAll">清空全部学习记录</button>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="modal">
+  <div class="mbox">
+    <h3 id="mTitle">改释义 / 原句</h3>
+    <div class="mword" id="mWord"></div>
+    <input class="minput" id="mInput" placeholder="中文意思，一两个就够">
+    <input class="minput" id="mInput2" placeholder="提示 / 搭配（可不填）">
+    <input class="minput" id="mInput3" placeholder="原句 / 语境（可不填）">
+    <div class="macts">
+      <button class="btn ghost" id="mCancel">取消</button>
+      <button class="btn" id="mSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
