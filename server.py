@@ -259,6 +259,7 @@ def all_words(force=False):
             if not it.get("ctx"):
                 it["ctx"] = d.get("ctx", "")          # 划词带的原句存在释义库里
             it["ph"] = d.get("ph", "")
+            it["rel"] = d.get("rel", [])
     return merged, counts, sources
 
 
@@ -277,8 +278,8 @@ def build_state(force=False):
         d = vocab.get(w) or {}
         merged[w] = {"w": w, "meaning": d.get("m", ""), "tip": d.get("tip", ""),
                      "ctx": d.get("ctx", ""),
-                     "ph": d.get("ph", ""), "section": d.get("section", "词表外"),
-                     "src": "学习记录"}
+                     "ph": d.get("ph", ""), "rel": d.get("rel", []),
+                     "section": d.get("section", "词表外"), "src": "学习记录"}
         orphan.append(w)
 
     words = []
@@ -291,6 +292,7 @@ def build_state(force=False):
             "ph": it.get("ph", ""),
             "tip": it["tip"],
             "ctx": it.get("ctx", ""),
+            "rel": it.get("rel", []),
             "sec": it["section"],
             "src": it["src"],
             "st": st,
@@ -402,6 +404,115 @@ def clean_meaning(s):
     return s[:60]
 
 
+# ---------- 按词性取释义 ----------
+# 以前是把所有义项摊平取前两个，结果多义词只剩第一个词性：
+# mortal 只留下「终有一死的」，名词「凡人」没了——而阅读里遇到的常常正是后面那些义项。
+# jsonapi 的 trs 本来就是按词性分组的，改成每个词性各取一个义项。
+
+POS_MAX = 3          # 最多带几个词性
+POS_LEN = 70         # 释义总长上限，按整条累加，不会截出半个词
+
+
+def first_sense(s):
+    """把一条释义整理成能上卡片的样子，不能用就返回空"""
+    s = re.sub(r"<[^>]+>", "", str(s or "")).strip()
+    first = re.split(r"[；;]", s)[0].strip()
+    # 【名】人名、【口】这类不算义项。注意它可能跟在词性后面（n. 【名】…），
+    # 所以看的是首义项里有没有【，不是整条开头
+    if not first or "【" in first:
+        return ""
+    # 少数词（sue）返回的是带序号的整句「1. 起诉，控告：向法庭提起诉讼…」，
+    # 只留冒号前面的词，别把整句解释搬上卡片
+    if re.match(r"^\d+[\.、]", first):
+        first = re.split(r"[：:]", re.sub(r"^\d+[\.、]\s*", "", first))[0].strip()
+    return first
+
+
+def meaning_from_trs(trs):
+    """trs 是 jsonapi 的词性分组，每组取第一个义项，拼成「adj. …；n. …」"""
+    out, n = [], 0
+    for tr in (trs or []):
+        s = ""
+        for l in tr.get("tr") or []:
+            for i in ((l.get("l") or {}).get("i") or []):
+                s = str(i or "")
+                break
+            if s:
+                break
+        first = first_sense(s)
+        if not first:
+            continue
+        if n and n + len(first) + 1 > POS_LEN:
+            break                          # 放不下了就不放，宁可少一个也别截半个词
+        out.append(first)
+        n += len(first) + 1
+        if len(out) >= POS_MAX:
+            break
+    return "；".join(out)
+
+
+# ---------- 派生词（有道 rel_word） ----------
+# 「名词的形容词形式」这类同根词，jsonapi 的 rel_word 直接给了，按词性分好组、
+# 自带中文释义，跟补释义是同一次请求，不用多发。里面混着几样没用的得挑掉：
+#   1. 屈折变形　descent -> descending
+#   2. 语义漂移　staple 主要产品 -> stapler 订书机
+#   3. 原词自己、多词短语（more able）
+
+REL_MAX = 3
+POS_ORDER = {"adj.": 0, "n.": 1, "v.": 2, "vt.": 2, "vi.": 2, "adv.": 3}
+
+
+def _bigrams(s):
+    """中文二元组，用来判断两个释义有没有语义重叠"""
+    cs = [c for c in (s or "") if "\u4e00" <= c <= "\u9fff"]
+    return {"".join(cs[i:i + 2]) for i in range(len(cs) - 1)}
+
+
+def _word_forms(j):
+    """wfs 是权威变形表（复数/过去式/比较级），里面出现的不算派生词"""
+    out = set()
+    for w in ((j.get("ec") or {}).get("word") or [])[:1]:
+        for x in (w.get("wfs") or []):
+            for p in (((x.get("wf") or {}).get("value")) or "").split("或"):
+                if p.strip():
+                    out.add(p.strip().lower())
+    return out
+
+
+def parse_rels(word, j, meaning=""):
+    """挑派生词，返回 [{w, pos, m}]"""
+    lw = (word or "").lower()
+    forms = _word_forms(j)
+
+    cand, seen = [], set()
+    for r in ((j.get("rel_word") or {}).get("rels") or []):
+        rel = r.get("rel") or {}
+        pos = (rel.get("pos") or "").strip()
+        for x in (rel.get("words") or []):
+            w2 = (x.get("word") or "").strip().lower()
+            tr = (x.get("tran") or "").strip()
+            if not w2 or w2 in seen or " " in w2 or "-" in w2:
+                continue
+            if w2 == lw or w2 in forms:
+                continue
+            seen.add(w2)
+            cand.append({"w": w2, "pos": pos, "m": tr[:24]})
+
+    # 语义漂移：跟原词意思完全不搭的剔掉。剔得太狠就不过滤，
+    # 宁可多给两个也别一个都没有
+    bg = _bigrams(meaning)
+    if bg and len(cand) > 2:
+        keep = [c for c in cand if _bigrams(c["m"]) & bg]
+        if len(keep) >= 2:
+            cand = keep
+
+    # -ing / -ed 结尾的多半是变形不是派生（descending），排到最后，
+    # 但 interesting、willing 这种真形容词还能留着
+    cand.sort(key=lambda c: (1 if re.search(r"(ing|ed)$", c["w"]) else 0,
+                             POS_ORDER.get(c["pos"], 9)))
+    return cand[:REL_MAX]
+
+
 # ---------- 词形还原 ----------
 # 阅读里遇到的大多是变形（staples / running / carried），照原样查经常查不到。
 # 先查原样，查不到再按规则猜原形试一遍。猜错也没损失，只是多一次请求。
@@ -489,33 +600,23 @@ INFLECT_MARK = re.compile(
 
 
 def lookup(word):
-    """返回 (中文意思, 音标, 来源, 命中的原形)。原样查不到、或查到的是变形释义时，
+    """返回 (中文意思, 音标, 来源, 命中的原形, 派生词)。原样查不到、或查到的是变形释义时，
     改用词形还原的结果。命中还原形时 tip 会带上「原形 xxx」。"""
-    m, ph, src = _lookup_raw(word)
+    m, ph, src, rels = _lookup_raw(word)
     if m and not INFLECT_MARK.search(m):
-        return m, ph, src, ""
+        return m, ph, src, "", rels
     for c in lemma_candidates(word):
-        m2, ph2, src2 = _lookup_raw(c)
+        m2, ph2, src2, rels2 = _lookup_raw(c)
         if m2:
-            return m2, ph2, src2, c
-    return m, ph, src, ""        # 还原也没查到，退回原样（可能是空）
+            return m2, ph2, src2, c, rels2    # 派生词跟着还原形走（running -> runner）
+    return m, ph, src, "", rels  # 还原也没查到，退回原样（可能是空）
 
 
 def _lookup_raw(word):
-    """返回 (中文意思, 音标, 来源)。有道两个接口依次尝试。"""
+    """返回 (中文意思, 音标, 来源, 派生词)。jsonapi 当主路——只有它按词性分组，
+    音标和派生词也在同一个响应里；suggest 留着兜底。"""
     q = urllib.parse.quote(word)
-    # 1) suggest：释义最干净
-    try:
-        j = json.loads(_get("https://dict.youdao.com/suggest?q=%s&doctype=json&num=1&le=en" % q))
-        for e in (j.get("data") or {}).get("entries") or []:
-            if (e.get("entry") or "").lower() == word.lower() and e.get("explain"):
-                return clean_meaning(e["explain"]), "", "youdao"
-        ents = (j.get("data") or {}).get("entries") or []
-        if ents and ents[0].get("explain"):
-            return clean_meaning(ents[0]["explain"]), "", "youdao"
-    except Exception:
-        pass
-    # 2) jsonapi：ec 里能拿到音标
+    # 1) jsonapi：按词性给全，音标和派生词也在这
     try:
         j = json.loads(_get("https://dict.youdao.com/jsonapi?q=%s" % q))
         ec = j.get("ec") or {}
@@ -523,22 +624,39 @@ def _lookup_raw(word):
         if ws:
             head = ws[0]
             phone = head.get("usphone") or head.get("ukphone") or ""
-            out = []
-            for tr in (head.get("trs") or [])[:2]:
-                for l in tr.get("tr") or []:
-                    for i in ((l.get("l") or {}).get("i") or []):
-                        if i:
-                            out.append(re.sub(r"<[^>]+>", "", str(i)).strip())
-            if out:
-                return clean_meaning("；".join(out[:2])), phone, "youdao"
-            return "", phone, "youdao"
+            m = meaning_from_trs(head.get("trs") or [])
+            if not m:                      # 新写法没取到，退回老的摊平取法
+                out = []
+                for tr in (head.get("trs") or [])[:4]:
+                    for l in tr.get("tr") or []:
+                        for i in ((l.get("l") or {}).get("i") or []):
+                            s2 = first_sense(i)
+                            if s2:
+                                out.append(s2)
+                if out:
+                    m = clean_meaning("；".join(out[:2]))
+            if m:                          # 拿不到就往下试 web_trans / suggest，
+                return m, phone, "youdao", parse_rels(word, j, m)   # 别返回空释义
         wt = j.get("web_trans") or {}
         tr = wt.get("web-translation") or []
         if tr:
-            return clean_meaning("；".join([t.get("key", "") for t in tr[:2]])), "", "youdao"
+            m = clean_meaning("；".join([t.get("key", "") for t in tr[:2]]))
+            if m:
+                return m, "", "youdao", parse_rels(word, j, m)
     except Exception:
         pass
-    return "", "", ""
+    # 2) suggest：兜底。释义干净但只给一个词性，没有音标也没有派生词
+    try:
+        j = json.loads(_get("https://dict.youdao.com/suggest?q=%s&doctype=json&num=1&le=en" % q))
+        for e in (j.get("data") or {}).get("entries") or []:
+            if (e.get("entry") or "").lower() == word.lower() and e.get("explain"):
+                return clean_meaning(e["explain"]), "", "youdao", []
+        ents = (j.get("data") or {}).get("entries") or []
+        if ents and ents[0].get("explain"):
+            return clean_meaning(ents[0]["explain"]), "", "youdao", []
+    except Exception:
+        pass
+    return "", "", "", []
 
 
 def fill_missing(words):
@@ -549,15 +667,15 @@ def fill_missing(words):
         return {"ok": 0, "fail": 0, "updated": []}
 
     def one(w):
-        """返回 (词, 释义, 音标, 来源, 命中的原形)"""
+        """返回 (词, 释义, 音标, 来源, 命中的原形, 派生词)"""
         try:
-            m, ph, src, lemma = lookup(w)
+            m, ph, src, lemma, rels = lookup(w)
         except Exception:
-            m, ph, src, lemma = "", "", "", ""
-        return w, m, ph, src, lemma
+            m, ph, src, lemma, rels = "", "", "", "", []
+        return w, m, ph, src, lemma, rels
 
     with ThreadPoolExecutor(max_workers=12) as ex:
-        for w, m, ph, src, lemma in ex.map(one, todo):
+        for w, m, ph, src, lemma, rels in ex.map(one, todo):
             if m:
                 d = vocab.get(w) or {}
                 d.update({"m": m, "ph": ph, "src": src})
@@ -565,12 +683,99 @@ def fill_missing(words):
                 if lemma:
                     d["tip"] = "原形 %s" % lemma    # 让人知道这个词是变形
                     d["lemma"] = lemma
+                if rels:
+                    d["rel"] = rels
                 vocab[w] = d
                 done.append({"w": w, "m": m, "lemma": lemma})
             else:
                 fail.append(w)
     save_json(DICT_F, vocab)
     return {"ok": len(done), "fail": len(fail), "updated": done}
+
+
+def refill_meaning(words, limit=40, workers=4):
+    """重刷联网补来的释义。只动 src=youdao 的，自己整理的（整理表）和手改过的
+    （manual）一个都不碰。刷过的打上 rv，下次不再刷；查不到的留着，下批会再试。"""
+    vocab = load_json(DICT_F, {})
+
+    def pending(w):
+        d = vocab.get(w) or {}
+        return d.get("src") == "youdao" and not d.get("rv")
+
+    todo = [w for w in words if w and pending(w)][:limit]
+    if not todo:
+        return {"ok": 0, "fail": 0, "remain": 0, "updated": []}
+
+    def one(w):
+        try:
+            m, ph, src, lemma = lookup(w)
+        except Exception:
+            m, ph, src, lemma = "", "", "", ""
+        return w, m, ph, src, lemma
+
+    done, fail = [], []
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        for w, m, ph, src, lemma in ex.map(one, todo):
+            d = vocab.get(w) or {}
+            if m:
+                d["m"] = m                  # 音标以前走 suggest 基本都是空的，一起补上
+                d["rv"] = 1
+            if ph:
+                d["ph"] = ph
+            if lemma:
+                d.setdefault("lemma", lemma)
+            vocab[w] = d
+            if m:
+                done.append({"w": w, "m": m, "ph": ph})
+            else:
+                fail.append(w)
+    save_json(DICT_F, vocab)
+    remain = sum(1 for w in words if w and pending(w))
+    return {"ok": len(done), "fail": len(fail), "remain": remain, "updated": done}
+
+
+def fill_rels(words, limit=40, workers=4):
+    """给老词补派生词。释义不动，只补 rel。
+    查到了就打 rr 不再刷；查都没查到（多半是网络）的留着下批再试。"""
+    vocab = load_json(DICT_F, {})
+
+    def pending(w):
+        d = vocab.get(w) or {}
+        return not d.get("rel") and not d.get("rr")
+
+    todo = [w for w in words if w and pending(w)][:limit]
+    if not todo:
+        return {"ok": 0, "fail": 0, "remain": 0, "updated": []}
+
+    def one(w):
+        try:
+            m, ph, src, lemma, rels = lookup(w)
+        except Exception:
+            m, ph, src, lemma, rels = "", "", "", "", []
+        return w, m, ph, src, lemma, rels
+
+    done, fail = [], []
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        for w, m, ph, src, lemma, rels in ex.map(one, todo):
+            d = vocab.get(w) or {}
+            # tip 里自己写过的派生词就不重复列了
+            if rels and d.get("tip"):
+                tl = d["tip"].lower()
+                rels = [r for r in rels if r["w"] not in tl]
+            if rels:
+                d["rel"] = rels
+            if rels or m:                  # 查到了就标记，没查到的留着重试
+                d["rr"] = 1
+            if ph and not d.get("ph"):
+                d["ph"] = ph
+            vocab[w] = d
+            if rels:
+                done.append({"w": w, "rel": [r["w"] for r in rels]})
+            else:
+                fail.append(w)
+    save_json(DICT_F, vocab)
+    remain = sum(1 for w in words if w and pending(w))
+    return {"ok": len(done), "fail": len(fail), "remain": remain, "updated": done}
 
 
 # ---------- 导出 ----------
@@ -763,6 +968,20 @@ class H(BaseHTTPRequestHandler):
             ws = b.get("words") or build_state().get("missing") or []
             ws = ws[: int(b.get("limit", 300))]
             return self.send(200, json.dumps(fill_missing(ws), ensure_ascii=False))
+        if p == "/api/fillrel":
+            # 给老词补派生词，一次一小批，并发压低
+            ws = b.get("words") or [w["w"] for w in build_state()["words"]]
+            r = fill_rels(ws,
+                          limit=min(int(b.get("limit", 40)), 100),
+                          workers=min(int(b.get("workers", 4)), 6))
+            return self.send(200, json.dumps(r, ensure_ascii=False))
+        if p == "/api/refill":
+            # 重刷联网补的释义，把多义词丢掉的词性找回来。一次一小批，并发压低
+            ws = b.get("words") or [w["w"] for w in build_state()["words"]]
+            r = refill_meaning(ws,
+                               limit=min(int(b.get("limit", 40)), 100),
+                               workers=min(int(b.get("workers", 4)), 6))
+            return self.send(200, json.dumps(r, ensure_ascii=False))
         if p == "/api/source/add":
             sources = load_json(SRC_F, [])
             if b.get("content"):                       # 上传的文件内容

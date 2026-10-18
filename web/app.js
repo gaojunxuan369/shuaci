@@ -180,12 +180,21 @@ function renderCard() {
     m.className = 'mean' + (w.m ? '' : ' empty');
     if (CFG.hints && w.tip) { $('#tip').textContent = w.tip; $('#tip').hidden = false; }
     else $('#tip').hidden = true;
+    // 派生词也是答案的一部分，跟原句一样翻面后才给
+    const rel = w.rel || [];
+    if (rel.length) {
+      $('#rel').textContent = '派生　'
+        + rel.map(r => `${r.w} ${r.pos} ${r.m}`).join('　·　');
+      $('#rel').hidden = false;
+    } else $('#rel').hidden = true;
     // 读到它的那句话，属于答案的一部分，翻面后才给看
     if (w.ctx) { $('#ctx').textContent = w.ctx; $('#ctx').hidden = false; }
     else $('#ctx').hidden = true;
   } else {
     $('#mean').hidden = true;
     $('#tip').hidden = true;
+    // 派生词也得清掉，不然上一张翻面带出来的会一直挂在新词下面
+    $('#rel').hidden = true;
     $('#ctx').hidden = true;
   }
 
@@ -498,6 +507,34 @@ function bind() {
     renderSrc();
     $('#fillInfo').textContent = `成功 ${r.ok} 个，失败 ${r.fail} 个`;
     toast(`补全了 ${r.ok} 个`, 'good');
+  };
+
+  $('#btnFillRel').onclick = async () => {
+    const b = $('#btnFillRel');
+    b.disabled = true;
+    $('#fillRelInfo').textContent = '正在补派生词…（一次 40 个，没补完再点一次）';
+    const r = await api('/api/fillrel', {});
+    await loadState(true);
+    renderSrc();
+    $('#fillRelInfo').textContent =
+      `补了 ${r.ok} 个${r.fail ? `，${r.fail} 个没派生词` : ''}`
+      + (r.remain ? `，还剩 ${r.remain} 个，再点一次` : '，全部补完了');
+    b.disabled = false;
+    toast(`补了 ${r.ok} 个派生词`, 'good');
+  };
+
+  $('#btnRefill').onclick = async () => {
+    const b = $('#btnRefill');
+    b.disabled = true;
+    $('#refillInfo').textContent = '正在重刷…（一次 40 个，没刷完就再点一次）';
+    const r = await api('/api/refill', {});
+    await loadState(true);
+    renderSrc();
+    $('#refillInfo').textContent =
+      `成功 ${r.ok} 个${r.fail ? `，失败 ${r.fail}` : ''}`
+      + (r.remain ? `，还剩 ${r.remain} 个，再点一次` : '，全部刷完了');
+    b.disabled = false;
+    toast(`重刷了 ${r.ok} 个`, 'good');
   };
 
   $('#btnExport').onclick = async () => {

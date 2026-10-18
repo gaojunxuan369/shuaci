@@ -16,6 +16,9 @@ python_path.txt
 __pycache__/
 *.pyc
 *.pyo
+
+# 改代码前留的本地备份，不上传
+*.bak_*
 .DS_Store
 Thumbs.db
 .vscode/
